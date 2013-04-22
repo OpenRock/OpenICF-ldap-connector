@@ -19,6 +19,8 @@
  * enclosed by brackets [] replaced by your own identifying information: 
  * "Portions Copyrighted [year] [name of copyright owner]"
  * ====================
+ * 
+ * Portions Copyrighted 2013 Forgerock
  */
 package org.identityconnectors.ldap;
 
@@ -430,6 +432,15 @@ public class LdapConfiguration extends AbstractConfiguration {
 
     public void setAccountSearchFilter(String accountSearchFilter) {
         this.accountSearchFilter = accountSearchFilter;
+    }
+
+    public String[] getGroupObjectClasses() {
+        List<String> ldapClasses = groupConfig.getLdapClasses();
+        return ldapClasses.toArray(new String[ldapClasses.size()]);
+    }
+
+    public void setGroupObjectClasses(String... groupObjectClasses) {
+        groupConfig.setLdapClasses(Arrays.asList(groupObjectClasses));
     }
 
     public String getGroupMemberAttribute() {

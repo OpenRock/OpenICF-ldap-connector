@@ -19,6 +19,8 @@
  * enclosed by brackets [] replaced by your own identifying information: 
  * "Portions Copyrighted [year] [name of copyright owner]"
  * ====================
+ * 
+ * Portions Copyrighted 2013 Forgerock
  */
 package org.identityconnectors.ldap.schema;
 
@@ -36,16 +38,20 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.naming.NameAlreadyBoundException;
 
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
 import javax.naming.directory.BasicAttributes;
+import javax.naming.directory.SearchControls;
+import javax.naming.directory.SearchResult;
 import javax.naming.ldap.LdapName;
 
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.framework.common.exceptions.AlreadyExistsException;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.objects.Attribute;
 import org.identityconnectors.framework.common.objects.AttributeBuilder;
@@ -230,8 +236,14 @@ public class LdapSchemaMapping {
     public Uid createUid(ObjectClass oclass, String entryDN) {
         String ldapUidAttr = getLdapUidAttribute(oclass);
         if (isDNAttribute(ldapUidAttr)) {
-            // Short path for the simple case; avoids another trip to the server.
-            return new Uid(entryDN);
+            try{
+                //we do an exact search to get the DN as normalized by the server
+                NamingEnumeration<SearchResult> ne = conn.getInitialContext().search(entryDN, "objectclass=*", new SearchControls(SearchControls.OBJECT_SCOPE,0,0,null,false,false));
+                SearchResult sr = ne.next();
+                return new Uid(sr.getNameInNamespace());
+            } catch (NamingException e) {
+                throw new ConnectorException(e);
+            }
         } else {
             try {
                 Attributes attributes = conn.getInitialContext().getAttributes(entryDN, new String[] { ldapUidAttr });
@@ -309,6 +321,8 @@ public class LdapSchemaMapping {
         try {
             conn.getInitialContext().createSubcontext(entryName, ldapAttrs).close();
             return entryName.toString();
+        } catch (NameAlreadyBoundException e){
+            throw new AlreadyExistsException(e);
         } catch (NamingException e) {
             throw new ConnectorException(e);
         }
@@ -362,6 +376,8 @@ public class LdapSchemaMapping {
         try {
             conn.getInitialContext().rename(entryDN, newEntryDN);
             return newEntryDN;
+        } catch (NameAlreadyBoundException e){
+            throw new AlreadyExistsException(e);
         } catch (NamingException e) {
             throw new ConnectorException(e);
         }

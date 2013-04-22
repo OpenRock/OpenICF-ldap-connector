@@ -42,6 +42,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.naming.InvalidNameException;
 import javax.naming.NamingException;
@@ -97,7 +98,7 @@ public class SunDSChangeLogSyncStrategy implements LdapSyncStrategy {
      */
     private static final Set<String> LDIF_MODIFY_OPS;
 
-    private final LdapConnection conn;
+    protected final LdapConnection conn;
     private final ObjectClass oclass;
 
     private ChangeLogAttributes changeLogAttrs;
@@ -130,37 +131,58 @@ public class SunDSChangeLogSyncStrategy implements LdapSyncStrategy {
 
         final int[] currentChangeNumber = { getStartChangeNumber(token) };
 
-        final boolean[] results = new boolean[1];
+        final AtomicBoolean isHandling = new AtomicBoolean(true);
+        final AtomicBoolean isNotEmpty = new AtomicBoolean(false);
         do {
-            results[0] = false;
-
+            isNotEmpty.set(false);
             String filter = getChangeLogSearchFilter(changeNumberAttr, currentChangeNumber[0]);
+            log.ok("Start processing ChangeLogs with filter: {0} handler: {1}",filter, isHandling.get());
+
             LdapInternalSearch search = new LdapInternalSearch(conn, filter, singletonList(context), new DefaultSearchStrategy(false), controls);
 
             search.execute(new SearchResultsHandler() {
                 public boolean handle(String baseDN, SearchResult result) throws NamingException {
-                    results[0] = true;
-                    LdapEntry entry = LdapEntry.create(baseDN, result);
-
-                    int changeNumber = convertToInt(getStringAttrValue(entry.getAttributes(), changeNumberAttr), -1);
-                    if (changeNumber > currentChangeNumber[0]) {
-                        currentChangeNumber[0] = changeNumber;
+                    if (isHandling.get()) {
+                        LdapEntry entry = LdapEntry.create(baseDN, result);
+                        int changeNumber =
+                                convertToInt(getStringAttrValue(entry.getAttributes(),
+                                        changeNumberAttr), -1);
+                        if (changeNumber > currentChangeNumber[0]) {
+                            currentChangeNumber[0] = changeNumber;
+                        }
+                        log.ok("Start processing ChangeLog: {0}", currentChangeNumber[0]);
+                        SyncDelta delta =
+                                createSyncDelta(entry, changeNumber, options.getAttributesToGet());
+                        if (delta != null) {
+                            log.ok("Handle SyncDelta  {0}", delta);
+                            try {
+                                isHandling.compareAndSet(true, handler.handle(delta));
+                            } catch (Throwable t) {
+                                log.error(t, "Failed to handle SyncDelta:{0}", delta);
+                                isHandling.set(false);
+                            }
+                        }
+                        log.ok("Finished processing ChangeLog: {0} handler: {1}",
+                                currentChangeNumber[0], isHandling.get());
                     }
-
-                    SyncDelta delta = createSyncDelta(entry, changeNumber, options.getAttributesToGet());
-                    if (delta != null) {
-                        return handler.handle(delta);
-                    }
-                    return true;
+                    isNotEmpty.set(true);
+                    return isHandling.get();
                 }
             });
 
             // We have already processed the current change.
             // In the next cycle we want to start with the next change.
-            if (results[0]) {
+
+            if (isHandling.get()) {
+                log.ok("Increase the currentChangeNumber {0} and continue",
+                        currentChangeNumber[0]);
                 currentChangeNumber[0]++;
+            } else {
+                log.ok("Break the loop currentChangeNumber {0}",
+                        currentChangeNumber[0]);
+                break;
             }
-        } while (results[0]);
+        } while (isNotEmpty.get());
     }
 
     private SyncDelta createSyncDelta(LdapEntry changeLogEntry, int changeNumber, String[] attrsToGetOption) {
@@ -192,7 +214,7 @@ public class SunDSChangeLogSyncStrategy implements LdapSyncStrategy {
                 log.ok("Skipping entry because modifiersName is in the list of modifiersName's to filter out");
                 return null;
             }
-            String uidAttr = conn.getSchemaMapping().getLdapUidAttribute(oclass);            
+            String uidAttr = conn.getSchemaMapping().getLdapUidAttribute(oclass);
             if (!LdapEntry.isDNAttribute(uidAttr)) {
                 if ("entryUUID".equalsIgnoreCase(uidAttr)) {
                     // This is "entryUUID" by default but the "targetDN" is not a UUID
@@ -210,7 +232,7 @@ public class SunDSChangeLogSyncStrategy implements LdapSyncStrategy {
                     throw new ConnectorException("Unsupported Uid attribute " + uidAttr);
                 }
             } else {
-                syncDeltaBuilder.setUid(conn.getSchemaMapping().createUid(oclass, targetDN));
+                syncDeltaBuilder.setUid(new Uid(targetDN));
             }
             return syncDeltaBuilder.build();
         }
@@ -342,7 +364,7 @@ public class SunDSChangeLogSyncStrategy implements LdapSyncStrategy {
         return false;
     }
 
-    private boolean filterOutByModifiersNames(Map<String, List<Object>> changes) {
+    protected boolean filterOutByModifiersNames(Map<String, List<Object>> changes) {
         Set<LdapName> filter = conn.getConfiguration().getModifiersNamesToFilterOutAsLdapNames();
         if (filter.isEmpty()) {
             log.ok("Filtering by modifiersName disabled");

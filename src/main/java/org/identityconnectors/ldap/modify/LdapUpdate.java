@@ -19,6 +19,8 @@
  * enclosed by brackets [] replaced by your own identifying information: 
  * "Portions Copyrighted [year] [name of copyright owner]"
  * ====================
+ * 
+ * Portions Copyrighted 2013 Forgerock
  */
 package org.identityconnectors.ldap.modify;
 
@@ -28,6 +30,7 @@ import static org.identityconnectors.common.CollectionUtil.nullAsEmpty;
 import static org.identityconnectors.ldap.LdapUtil.checkedListByFilter;
 import static org.identityconnectors.ldap.LdapUtil.quietCreateLdapName;
 import static org.identityconnectors.ldap.LdapUtil.escapeDNValueOfJNDIReservedChars;
+import static org.identityconnectors.ldap.LdapUtil.normalizeLdapString;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -101,18 +104,17 @@ public class LdapUpdate extends LdapModifyOperation {
             checkRemovedPosixRefAttrs(posixMember.getPosixRefAttributes(), posixMember.getPosixGroupMemberships());
         }
 
-        // Update the attributes.
-        modifyAttributes(entryDN, attrToModify, DirContext.REPLACE_ATTRIBUTE);
-
         // Rename the entry if needed.
         String oldEntryDN = null;
-        if (newName != null) {
+        if ((newName != null) && (!normalizeLdapString(entryDN).equalsIgnoreCase(normalizeLdapString(newEntryDN)))) {
             if (newPosixRefAttrs != null && conn.getConfiguration().isMaintainPosixGroupMembership() || posixGroups != null) {
                 posixMember.getPosixRefAttributes();
             }
             oldEntryDN = entryDN;
             entryDN = conn.getSchemaMapping().rename(oclass, oldEntryDN, newName);
         }
+        // Update the attributes.
+        modifyAttributes(entryDN, attrToModify, DirContext.REPLACE_ATTRIBUTE);
 
         // Update the LDAP groups.
         Modification<GroupMembership> ldapGroupMod = new Modification<GroupMembership>();

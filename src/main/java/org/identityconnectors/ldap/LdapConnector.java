@@ -19,12 +19,17 @@
  * enclosed by brackets [] replaced by your own identifying information: 
  * "Portions Copyrighted [year] [name of copyright owner]"
  * ====================
+ * 
+ * Portions Copyrighted 2013 Forgerock
  */
 package org.identityconnectors.ldap;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
-
+import javax.naming.NamingException;
 import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.framework.common.exceptions.ConfigurationException;
 import org.identityconnectors.framework.common.objects.Attribute;
 import org.identityconnectors.framework.common.objects.ObjectClass;
 import org.identityconnectors.framework.common.objects.OperationOptions;
@@ -52,6 +57,7 @@ import org.identityconnectors.ldap.modify.LdapUpdate;
 import org.identityconnectors.ldap.search.LdapFilter;
 import org.identityconnectors.ldap.search.LdapFilterTranslator;
 import org.identityconnectors.ldap.search.LdapSearch;
+import org.identityconnectors.ldap.sync.ibm.IBMDSChangeLogSyncStrategy;
 import org.identityconnectors.ldap.sync.sunds.SunDSChangeLogSyncStrategy;
 
 @ConnectorClass(configurationClass = LdapConfiguration.class, displayNameKey = "LdapConnector")
@@ -87,7 +93,33 @@ public class LdapConnector implements TestOp, PoolableConnector, SchemaOp, Searc
     }
 
     public void test() {
+        List<String> badBC = new ArrayList<String>();
+        List<String> badBCS = new ArrayList<String>();
+        config.validate();
         conn.test();
+        // Need to check that all the base contexts are valid
+        for (String context : config.getBaseContexts()) {
+            try {
+                conn.getInitialContext().getAttributes(context);
+            } catch (NamingException e) {
+                badBC.add(context);
+            }
+        }
+        for (String context : config.getBaseContextsToSynchronize()) {
+            try {
+                conn.getInitialContext().getAttributes(context);
+            } catch (NamingException e) {
+                badBCS.add(context);
+            }
+        }
+        if (!badBC.isEmpty()){
+            throw new ConfigurationException("Bad Base Context(s): " + badBC.toString());
+        }
+        if (!badBCS.isEmpty()){
+            throw new ConfigurationException("Bad Base Context(s) to Synchronize: " + badBCS.toString());
+        }
+        
+        
     }
 
     public void checkAlive() {
@@ -136,10 +168,21 @@ public class LdapConnector implements TestOp, PoolableConnector, SchemaOp, Searc
     }
 
     public SyncToken getLatestSyncToken(ObjectClass oclass) {
-        return new SunDSChangeLogSyncStrategy(conn, oclass).getLatestSyncToken();
+        switch (conn.getServerType()) {
+            case IBM:
+                return new IBMDSChangeLogSyncStrategy(conn, oclass).getLatestSyncToken();
+            default:
+                return new SunDSChangeLogSyncStrategy(conn, oclass).getLatestSyncToken();
+        }
     }
 
     public void sync(ObjectClass oclass, SyncToken token, SyncResultsHandler handler, OperationOptions options) {
-        new SunDSChangeLogSyncStrategy(conn, oclass).sync(token, handler, options);
+        switch (conn.getServerType()) {
+            case IBM:
+                new IBMDSChangeLogSyncStrategy(conn, oclass).sync(token, handler, options);
+                break;
+            default:
+                new SunDSChangeLogSyncStrategy(conn, oclass).sync(token, handler, options);
+        }
     }
 }
