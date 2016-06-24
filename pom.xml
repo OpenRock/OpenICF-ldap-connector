@@ -39,7 +39,7 @@
     <scm>
         <connection>scm:git:ssh://git@stash.forgerock.org:7999/openicf/ldap-connector.git</connection>
         <developerConnection>scm:git:ssh://git@stash.forgerock.org:7999/openicf/ldap-connector.git</developerConnection>
-        <url>http://stash.forgerock.org/projects/OPENICF/repos/ldap-connector/browse</url>
+        <url>https://stash.forgerock.org/projects/OPENICF/repos/ldap-connector/commits?until=refs%2Fheads%2F1.4.1.x</url>
       <tag>HEAD</tag>
   </scm>
     <issueManagement>
